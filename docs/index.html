@@ -4,13 +4,36 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Awayke - Keep Your Mac Awake with Lid Closed</title>
-  <meta name="description" content="Awayke is a free, open-source macOS menubar app that prevents MacBook sleep when the lid is closed — no external display required. One click. No config." />
+  <meta name="description" content="Awayke prevents your Mac from sleeping when the lid is closed. No external monitor, no Terminal commands. One click in the menubar." />
   <meta name="keywords" content="keep Mac awake lid closed, prevent MacBook sleep no external display, clamshell mode without monitor, macOS lid sleep disable, keep MacBook running lid closed" />
-  <meta property="og:title" content="Awayke – Keep Your Mac Awake with Lid Closed" />
+  <link rel="canonical" href="https://daemonphantom.github.io/Awayke/" />
+  <meta property="og:title" content="Awayke - Keep Your Mac Awake with Lid Closed" />
   <meta property="og:description" content="Free macOS menubar utility. Prevents lid-close sleep with one click. No external monitor needed." />
   <meta property="og:type" content="website" />
-  <meta name="twitter:card" content="summary" />
+  <meta property="og:url" content="https://daemonphantom.github.io/Awayke/" />
+  <meta property="og:image" content="https://daemonphantom.github.io/Awayke/social-preview.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Awayke - Keep Your Mac Awake with Lid Closed" />
+  <meta name="twitter:description" content="Free macOS menubar utility. Prevents lid-close sleep with one click. No external monitor needed." />
+  <meta name="twitter:image" content="https://daemonphantom.github.io/Awayke/social-preview.png" />
   <link rel="icon" href="AppIcon1024.png" type="image/png" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Awayke",
+    "operatingSystem": "macOS",
+    "applicationCategory": "UtilitiesApplication",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "description": "Free macOS menubar utility that prevents lid-close sleep without an external display. One-click toggle, no password prompts.",
+    "url": "https://daemonphantom.github.io/Awayke/",
+    "downloadUrl": "https://github.com/daemonphantom/Awayke/releases/latest"
+  }
+  </script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +55,7 @@
       --max-w:        640px;
     }
 
-    html { background: radial-gradient(ellipse 30% 100% at 50% 50%, #4E4E4E 0%, #000000 95%) fixed; color: var(--body); font-family: var(--font-display); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    html { background: radial-gradient(ellipse 70% 100% at 50% 50%, #2a2a2a 0%, #000000 95%) fixed; color: var(--body); font-family: var(--font-display); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
 
     body { min-height: 100vh; }
 
@@ -155,63 +178,16 @@
     }
     .steps li p { margin: 0; }
 
-    /* Technical Deep Dive */
-    .deep-dive { padding: 64px 0; border-top: 1px solid var(--border); }
-    .deep-dive summary {
-      display: flex; align-items: center; justify-content: space-between;
-      cursor: pointer; list-style: none; user-select: none;
-      padding: 0;
+    section h3 {
+      font-size: 15px; font-weight: 700; color: var(--heading);
+      margin: 28px 0 8px; letter-spacing: -.01em;
     }
-    .deep-dive summary::-webkit-details-marker { display: none; }
-    .deep-dive summary .summary-label {
-      font-size: 11px; font-family: var(--font-mono);
-      letter-spacing: .18em; text-transform: uppercase;
-      color: var(--muted);
-    }
-    .deep-dive summary .summary-chevron {
-      font-size: 11px; font-family: var(--font-mono);
-      color: var(--muted); transition: transform .25s ease;
-    }
-    .deep-dive details[open] summary .summary-chevron { transform: rotate(180deg); }
-    .deep-dive summary:hover .summary-label,
-    .deep-dive summary:hover .summary-chevron { color: var(--body); }
-    .deep-dive .dive-body {
-      overflow: hidden;
-      animation: dive-open .3s ease;
-    }
-    @keyframes dive-open {
-      from { opacity: 0; transform: translateY(-6px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .deep-dive .dive-inner { padding-top: 32px; }
-    .deep-dive ul { list-style: none; padding: 0; }
-    .deep-dive ul li {
-      display: flex; gap: 14px; align-items: flex-start;
-      padding: 16px 0; border-bottom: 1px solid var(--border);
-      font-size: 14px; color: var(--body); line-height: 1.7;
-    }
-    .deep-dive ul li:last-child { border-bottom: none; }
-    .deep-dive ul li::before {
-      content: "–"; color: var(--orange); font-family: var(--font-mono);
-      font-size: 13px; flex-shrink: 0; margin-top: 3px;
-    }
-    .deep-dive ul li > span { display: block; }
-    .deep-dive code, .deep-dive strong {
-      font-family: var(--font-mono); font-size: 13px;
-      color: var(--orange); background: none; border: none; padding: 0;
-      font-weight: 500;
-    }
-    .deep-dive h4 {
-      font-size: 13px; font-weight: 700; color: var(--heading);
-      margin: 32px 0 14px; letter-spacing: -.01em;
-    }
-    .deep-dive h4:first-of-type { margin-top: 0; }
-    .dive-closing { margin-top: 28px; font-size: 14px; color: var(--muted); line-height: 1.7; }
+    section h3:first-of-type { margin-top: 0; }
 
     footer { border-top: 1px solid var(--border); padding: 40px 0 48px; }
     footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
     .footer-note { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
-    .footer-links { display: flex; gap: 20px; }
+    .footer-links { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
     .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; transition: color .2s; }
     .footer-links a:hover { color: var(--heading); }
 
@@ -227,9 +203,9 @@
     <div class="brand-mark">
       <img src="AppIcon1024.png" alt="Awayke app icon" />
     </div>
-    <h1>Close your lid with Awayke.<br>Keep your Mac running.</h1>
+    <h1>Keep Your Mac Awake<br>With the <em>Lid Closed</em></h1>
     <p class="hero-sub">
-      Awayke prevents your Mac from sleeping when the lid is closed — no external monitor, no Amphetamine menus, no Terminal commands on every toggle. One click in the menubar.
+      Awayke prevents your Mac from sleeping when the lid is closed. No external monitor, no Terminal commands. One click in the menubar.
     </p>
     <div class="cta-row">
       <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;align-self:flex-start;">
@@ -343,57 +319,41 @@
     <p>macOS will still force sleep on critical battery regardless of disablesleep. Use at your own risk.</p>
   </section>
 
-  <section class="deep-dive" style="border: none; padding-top: 0;">
-    <details>
-      <summary>
-        <span class="summary-label">Technical Deep Dive</span>
-        <span class="summary-chevron">▾</span>
-      </summary>
-      <div class="dive-body">
-        <div class="dive-inner">
+  <section style="border-top: 1px solid var(--border);">
+    <h2>FAQ</h2>
 
-          <h4>Power User Workflow &amp; Command Bypasses</h4>
-          <ul>
-            <li><span>The ultimate replacement for manually typing <strong>sudo pmset -a disablesleep 1</strong> into Terminal every time you close your laptop.</span></li>
-            <li><span>Bypasses the flawed <strong>caffeinate</strong> command utility, which natively fails to block macOS lid-close sleep pathways.</span></li>
-            <li><span>Check power state management tracking instantly without running <strong>pmset -g</strong> in a separate shell window.</span></li>
-            <li><span>Eliminates repetitive admin password prompts by wrapping root calls in an authorized <strong>SMAppService</strong> helper daemon.</span></li>
-            <li><span>A native, zero-configuration alternative to heavy apps like <strong>Amphetamine</strong> when you need an immediate lid-close override.</span></li>
-          </ul>
+    <h3>Does Awayke work without an external monitor?</h3>
+    <p>Yes. Most keep-awake apps target display sleep, which doesn't touch the lid-close pathway. Awayke uses <code>pmset disablesleep</code> directly, so the lid can close without your Mac sleeping, monitor or not.</p>
 
-          <h4>AI Agents, IDEs &amp; Modern Developer Stacks</h4>
-          <ul>
-            <li><span>Keeps background execution loops active for terminal-bound AI tools like <strong>Claude Code</strong>, <strong>Codex</strong>, and local agent frameworks.</span></li>
-            <li><span>Prevents remote indexing timeouts and broken server connections in modern IDEs like <strong>Cursor</strong>, <strong>VS Code</strong>, and <strong>Zed</strong>.</span></li>
-            <li><span>Ensures long-running compilations, Docker builds, and large dependency installations don't freeze the moment you step away.</span></li>
-            <li><span>Perfect for developers running persistent background tasks who don't want to carry a dummy HDMI plug or external monitor.</span></li>
-            <li><span>No more dead SSH sessions, broken local web servers, or interrupted database migrations during short office transitions.</span></li>
-          </ul>
+    <h3>What's the difference between Awayke and Amphetamine?</h3>
+    <p>Amphetamine is a full-featured keep-awake utility with timers, triggers, and layers of configuration. Awayke does one thing: prevents lid-close sleep with a single click. Amphetamine's lid-close option exists, but it lives inside a submenu labeled "Allow Display to Sleep." Awayke's whole interface is that toggle.</p>
 
-          <h4>App Architecture &amp; macOS Core Mechanics</h4>
-          <ul>
-            <li><span>Leverages secure <strong>XPC communication</strong> to interact with system-wide power management safely and efficiently.</span></li>
-            <li><span>Distributed outside the Mac App Store to bypass sandboxing restrictions that block required system-level power calls.</span></li>
-            <li><span>A lightweight, memory-efficient utility built in native Swift — no background configuration surfaces.</span></li>
-            <li><span>Visual indicators switch between an orange icon for active sleep block and a white icon for standard system restore.</span></li>
-            <li><span>Automatically re-enables standard macOS power savings the moment you quit the app.</span></li>
-          </ul>
+    <h3>Does Awayke work on Apple Silicon and Intel Macs?</h3>
+    <p>Yes. The GitHub Releases download is a universal binary covering Apple Silicon (M1 and later) and Intel.</p>
 
-          <p class="dive-closing">Whether commuting between tech hubs, hot-desking in shared workspaces, or working remotely across distributed global teams, Awayke ensures your local developer environment remains persistently active.</p>
+    <h3>Is Awayke safe to use?</h3>
+    <p>The command Awayke runs is Apple's own. The real risk is thermal: a closed laptop in a bag with sleep disabled will overheat. Keep it on a surface, leave the lid cracked, and quit Awayke when you're done. Quitting restores normal sleep.</p>
 
-        </div>
-      </div>
-    </details>
+    <h3>Does it drain battery faster?</h3>
+    <p>Yes. Your Mac stays active instead of sleeping, so expect normal active-use battery draw. Plug in when you can.</p>
+
+    <h3>Does Awayke send any data anywhere?</h3>
+    <p>No. It has no network access, no telemetry, and no analytics. It runs one system command and nothing else.</p>
+
+    <h3>Does Awayke work on macOS Sequoia and Tahoe?</h3>
+    <p>Yes. Tested on Ventura through Tahoe.</p>
   </section>
 
 </div>
 
 <footer>
   <div class="wrap">
-    <p class="footer-note">
+    <p class="footer-note"><time datetime="2026-05">Last updated May 2026</time></p>
     <div class="footer-links">
       <a href="https://linkedin.com/in/david-durglishvili">My LinkedIn</a>
       <a href="https://github.com/daemonphantom/Awayke/blob/main/LICENSE">License</a>
+      <a href="https://github.com/daemonphantom/Awayke?tab=readme-ov-file#privacy-policy">Privacy Policy</a>
+      <a href="https://github.com/daemonphantom/Awayke?tab=readme-ov-file#terms-of-use">Terms of Use</a>
     </div>
   </div>
 </footer>

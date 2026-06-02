@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://daemonphantom.github.io/Awayke/sitemap.xml
