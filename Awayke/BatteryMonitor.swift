@@ -4,7 +4,7 @@
 //
 //  Thin IOKit wrapper over the system power sources. Emits a
 //  BatterySnapshot whenever the power state changes (charge or
-//  AC/battery). Event-driven via IOPSNotificationCreateRunLoopSource —
+//  AC/battery). Event-driven via IOPSNotificationCreateRunLoopSource -
 //  no polling. Machines without a battery report no snapshot.
 //
 

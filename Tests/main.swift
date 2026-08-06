@@ -43,6 +43,32 @@ check(AutoOffPolicy.decide(intent: true, suspended: true, percent: 24, onAC: tru
 check(AutoOffPolicy.decide(intent: true, suspended: true, percent: 30, onAC: false, threshold: 20),
       .none, "no resume on battery")
 
+// a manual override suppresses suspend for the rest of the discharge
+check(AutoOffPolicy.decide(intent: true, suspended: false, overridden: true, percent: 5, onAC: false, threshold: 20),
+      .none, "override suppresses suspend")
+
+// the override does not block a later resume once back on AC
+check(AutoOffPolicy.decide(intent: true, suspended: true, overridden: true, percent: 25, onAC: true, threshold: 20),
+      .resume, "override does not block resume")
+
+func checkBool(_ actual: Bool, _ expected: Bool, _ name: String) {
+    if actual == expected {
+        print("ok - \(name)")
+    } else {
+        failures += 1
+        print("FAIL - \(name): got \(actual), expected \(expected)")
+    }
+}
+
+// the override survives while still discharging
+checkBool(AutoOffPolicy.shouldKeepOverride(true, onAC: false), true, "override survives on battery")
+
+// reaching AC ends the override, re-arming auto-off for the next discharge
+checkBool(AutoOffPolicy.shouldKeepOverride(true, onAC: true), false, "override ends on AC")
+
+// nothing to keep when there was no override
+checkBool(AutoOffPolicy.shouldKeepOverride(false, onAC: false), false, "no override stays no override")
+
 if failures > 0 {
     print("\(failures) failing")
     exit(1)

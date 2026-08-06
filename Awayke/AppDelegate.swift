@@ -13,16 +13,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let helper = HelperManager.shared
     private let displayKeeper = DisplayWakeKeeper()
     private let batteryMonitor = BatteryMonitor()
+    private let autoOffTimer = AutoOffTimer()
 
     private let thresholdDefaultsKey = "autoOffThreshold"
     private let thresholdOptions = [0, 10, 20, 30]
+    private let durationOptions = [15, 30, 60, 120]
 
     /// The user's intent: do they want Awayke on?
     private var intent = false
     /// Battery auto-off is currently holding Awayke off.
     private var suspendedForBattery = false
+    /// The user turned Awayke on while already below the floor. Auto-off
+    /// stands down until the machine next reaches AC.
+    private var overrideBattery = false
     /// Most recent battery reading, for re-evaluating on threshold change.
     private var lastSnapshot: BatterySnapshot?
+    /// A pmset round-trip is outstanding. Guards against overlapping
+    /// calls - on the osascript fallback path each one is a separate
+    /// admin password prompt.
+    private var powerChangeInFlight = false
 
     /// Low-battery floor; 0 disables the feature. Persisted.
     private var threshold: Int {
@@ -67,6 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleBattery(snapshot)
         }
         batteryMonitor.start()
+
+        autoOffTimer.onExpire = { [weak self] in self?.handleTimerExpired() }
+        // Keeps the tooltip's remaining-time readout live.
+        autoOffTimer.onTick = { [weak self] in self?.refreshStatusItem() }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -95,21 +108,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - State application
 
-    /// Manual on/off. Always clears any battery suspension — the user
+    /// Manual on/off. Always clears any battery suspension - the user
     /// overrides the auto-off machine.
-    private func setIntent(_ on: Bool) {
+    ///
+    /// - Parameter timerMinutes: arms the auto-off countdown for this many
+    ///   minutes. Nil cancels any running countdown (plain on/off is
+    ///   indefinite).
+    private func setIntent(_ on: Bool, timerMinutes: Int? = nil) {
+        guard !powerChangeInFlight else { return }
+        powerChangeInFlight = true
+
         powerManager.disableSleep(on) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.powerChangeInFlight = false
                 switch result {
                 case .success:
                     self.intent = on
                     self.suspendedForBattery = false
+                    // Only an "on" issued while already below the floor
+                    // counts as an override. Turning on at a healthy
+                    // charge leaves auto-off armed for the discharge.
+                    self.overrideBattery = on && self.isBelowFloor
+                    if on, let minutes = timerMinutes {
+                        self.autoOffTimer.start(minutes: minutes)
+                    } else {
+                        self.autoOffTimer.cancel()
+                    }
                     self.syncDisplayKeeper()
                     self.refreshStatusItem()
                 case .failure(let error):
                     self.presentError(error)
                 }
+            }
+        }
+    }
+
+    /// Latest reading is on battery and under the configured floor.
+    private var isBelowFloor: Bool {
+        guard threshold > 0, let snapshot = lastSnapshot else { return false }
+        return !snapshot.onAC && snapshot.percent < threshold
+    }
+
+    /// The countdown ran out. Same end state as a manual "Turn Off".
+    private func handleTimerExpired() {
+        guard intent else { return }
+
+        // Battery auto-off already re-enabled sleep, so there is nothing
+        // to undo at the system level - just clear the state. Avoids a
+        // redundant pmset round-trip (and an admin prompt on the
+        // osascript fallback path).
+        guard !suspendedForBattery else {
+            intent = false
+            suspendedForBattery = false
+            overrideBattery = false
+            syncDisplayKeeper()
+            refreshStatusItem()
+            notify(title: "Awayke turned off", body: "Timer finished.")
+            return
+        }
+
+        guard !powerChangeInFlight else { return }
+        powerChangeInFlight = true
+
+        powerManager.disableSleep(false) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.powerChangeInFlight = false
+                guard case .success = result else { return }
+                self.intent = false
+                self.overrideBattery = false
+                self.syncDisplayKeeper()
+                self.refreshStatusItem()
+                self.notify(title: "Awayke turned off", body: "Timer finished.")
             }
         }
     }
@@ -120,36 +191,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleBattery(_ snapshot: BatterySnapshot) {
         lastSnapshot = snapshot
+        overrideBattery = AutoOffPolicy.shouldKeepOverride(overrideBattery, onAC: snapshot.onAC)
+
         let action = AutoOffPolicy.decide(
             intent: intent,
             suspended: suspendedForBattery,
+            overridden: overrideBattery,
             percent: snapshot.percent,
             onAC: snapshot.onAC,
             threshold: threshold
         )
-        switch action {
-        case .none:
-            break
-        case .suspend:
-            powerManager.disableSleep(false) { [weak self] result in
-                DispatchQueue.main.async {
-                    guard let self, case .success = result else { return }
-                    self.suspendedForBattery = true
-                    self.syncDisplayKeeper()
-                    self.refreshStatusItem()
+        guard action != .none else { return }
+
+        // Power notifications arrive faster than a pmset round-trip
+        // completes. Drop this one - the in-flight completion
+        // re-evaluates against the newest reading.
+        guard !powerChangeInFlight else { return }
+        powerChangeInFlight = true
+
+        let suspending = (action == .suspend)
+        powerManager.disableSleep(!suspending) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.powerChangeInFlight = false
+                guard case .success = result else { return }
+
+                self.suspendedForBattery = suspending
+                self.syncDisplayKeeper()
+                self.refreshStatusItem()
+                if suspending {
                     self.notify(title: "Awayke turned off",
                                 body: "Battery dropped below \(self.threshold)%.")
-                }
-            }
-        case .resume:
-            powerManager.disableSleep(true) { [weak self] result in
-                DispatchQueue.main.async {
-                    guard let self, case .success = result else { return }
-                    self.suspendedForBattery = false
-                    self.syncDisplayKeeper()
-                    self.refreshStatusItem()
+                } else {
                     self.notify(title: "Awayke back on",
-                                body: "Charging — sleep prevention resumed.")
+                                body: "Charging - sleep prevention resumed.")
+                }
+
+                // State moved on; re-check against anything that arrived
+                // while we were waiting. Terminates because each pass
+                // flips `suspendedForBattery`.
+                if let latest = self.lastSnapshot {
+                    self.handleBattery(latest)
                 }
             }
         }
@@ -162,18 +244,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let stateTitle: String
         if suspendedForBattery {
-            stateTitle = "Awayke: Paused (low battery)"
+            stateTitle = "Paused (low battery)"
+        } else if effectiveActive, let remaining = autoOffTimer.remaining {
+            stateTitle = "Active - \(formatRemaining(remaining)) left"
         } else {
-            stateTitle = effectiveActive ? "Awayke: Active" : "Awayke: Inactive"
+            stateTitle = effectiveActive ? "Active" : "Inactive"
         }
         let stateItem = NSMenuItem(title: stateTitle, action: nil, keyEquivalent: "")
         stateItem.isEnabled = false
         menu.addItem(stateItem)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: effectiveActive ? "Turn Off" : "Turn On",
-                                action: #selector(menuToggle), keyEquivalent: ""))
 
+        menu.addItem(keepAwakeSubmenuItem())
         menu.addItem(autoOffSubmenuItem())
 
         if let helperRow = helperStatusMenuItem() {
@@ -192,6 +275,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    private func keepAwakeSubmenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Keep awayke for", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+
+        for value in durationOptions {
+            let item = NSMenuItem(title: durationLabel(value),
+                                  action: #selector(menuKeepAwakeFor(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = value
+            submenu.addItem(item)
+        }
+
+        submenu.addItem(.separator())
+
+        // Tag 0 means "no countdown" - on until turned off.
+        let indefinite = NSMenuItem(title: "Indefinitely",
+                                    action: #selector(menuKeepAwakeFor(_:)), keyEquivalent: "")
+        indefinite.target = self
+        indefinite.tag = 0
+        indefinite.state = (effectiveActive && !autoOffTimer.isRunning) ? .on : .off
+        submenu.addItem(indefinite)
+
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func durationLabel(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes) minutes" }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        let hourPart = hours == 1 ? "1 hour" : "\(hours) hours"
+        return rest == 0 ? hourPart : "\(hourPart) \(rest) min"
+    }
+
+    /// Rounded up to the next whole minute, so a live countdown never
+    /// reads "0m" while Awayke is still on.
+    private func formatRemaining(_ seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded(.up)))
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return rest == 0 ? "\(hours)h" : "\(hours)h \(rest)m"
     }
 
     private func autoOffSubmenuItem() -> NSMenuItem {
@@ -227,7 +354,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func menuToggle() { setIntent(!effectiveActive) }
+    @objc private func menuKeepAwakeFor(_ sender: NSMenuItem) {
+        let minutes = sender.tag
+        if minutes > 0 {
+            requestNotificationAuthorization()
+        }
+
+        // Already on: just (re)arm the countdown. Skipping the pmset
+        // round-trip keeps the osascript fallback from asking for an
+        // admin password to set a state the system is already in.
+        guard effectiveActive else {
+            setIntent(true, timerMinutes: minutes > 0 ? minutes : nil)
+            return
+        }
+
+        if minutes > 0 {
+            autoOffTimer.start(minutes: minutes)
+        } else {
+            autoOffTimer.cancel()
+        }
+        refreshStatusItem()
+    }
 
     @objc private func menuSetThreshold(_ sender: NSMenuItem) {
         threshold = sender.tag
@@ -287,7 +434,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.contentTintColor = nil
         button.title = ""
         if suspendedForBattery {
-            button.toolTip = "Awayke paused — battery below \(threshold)%. Plug in to resume."
+            button.toolTip = "Awayke paused - battery below \(threshold)%. Plug in to resume."
+        } else if effectiveActive, let remaining = autoOffTimer.remaining {
+            button.toolTip = "Awayke is on - turning off in \(formatRemaining(remaining))."
         } else {
             button.toolTip = effectiveActive ? "Awayke is on!" : "Awayke is off. Click to turn it on."
         }
