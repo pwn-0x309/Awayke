@@ -69,6 +69,36 @@ checkBool(AutoOffPolicy.shouldKeepOverride(true, onAC: true), false, "override e
 // nothing to keep when there was no override
 checkBool(AutoOffPolicy.shouldKeepOverride(false, onAC: false), false, "no override stays no override")
 
+// A lid session started while open waits for a close, then expires on open.
+let openStart = LidSessionTracker()
+openStart.start(lidClosed: false)
+checkBool(openStart.isWaitingForClose, true, "open-start lid session waits for close")
+checkBool(openStart.handle(lidClosed: false), false, "open state does not immediately expire")
+checkBool(openStart.handle(lidClosed: true), false, "lid close arms session end")
+checkBool(openStart.isWaitingForClose, false, "closed session now waits for open")
+checkBool(openStart.handle(lidClosed: false), true, "lid reopen expires session")
+checkBool(openStart.handle(lidClosed: false), false, "lid session expires only once")
+
+// Starting while already closed (for example through an external display)
+// should expire on the next open without requiring another close first.
+let closedStart = LidSessionTracker()
+closedStart.start(lidClosed: true)
+checkBool(closedStart.handle(lidClosed: false), true, "closed-start session expires on open")
+
+let cancelled = LidSessionTracker()
+cancelled.start(lidClosed: false)
+cancelled.cancel()
+checkBool(cancelled.handle(lidClosed: true), false, "cancelled lid session ignores close")
+checkBool(cancelled.handle(lidClosed: false), false, "cancelled lid session ignores open")
+
+// If IOKit has not produced its initial reading yet, conservatively wait for
+// a complete close/open cycle rather than treating the current state as closed.
+let unknownStart = LidSessionTracker()
+unknownStart.start(lidClosed: nil)
+checkBool(unknownStart.isWaitingForClose, true, "unknown-start session waits for close")
+checkBool(unknownStart.handle(lidClosed: true), false, "unknown-start close arms session end")
+checkBool(unknownStart.handle(lidClosed: false), true, "unknown-start reopen expires session")
+
 if failures > 0 {
     print("\(failures) failing")
     exit(1)

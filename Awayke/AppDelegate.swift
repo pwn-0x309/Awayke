@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let displayKeeper = DisplayWakeKeeper()
     private let batteryMonitor = BatteryMonitor()
     private let autoOffTimer = AutoOffTimer()
+    private let lidMonitor = LidMonitor()
+    private let lidSession = LidSessionTracker()
 
     private let thresholdDefaultsKey = "autoOffThreshold"
     private let thresholdOptions = [0, 10, 20, 30]
@@ -32,6 +34,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// calls - on the osascript fallback path each one is a separate
     /// admin password prompt.
     private var powerChangeInFlight = false
+    /// A session can end while a battery-driven pmset change is still in
+    /// flight. Remember that event so it is not lost.
+    private var pendingSessionEnd: SessionEndReason?
+
+    private enum SessionEndReason {
+        case timer
+        case lidReopened
+
+        var notificationBody: String {
+            switch self {
+            case .timer: return "Timer finished."
+            case .lidReopened: return "The lid was reopened."
+            }
+        }
+    }
 
     /// Low-battery floor; 0 disables the feature. Persisted.
     private var threshold: Int {
@@ -80,6 +97,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoOffTimer.onExpire = { [weak self] in self?.handleTimerExpired() }
         // Keeps the tooltip's remaining-time readout live.
         autoOffTimer.onTick = { [weak self] in self?.refreshStatusItem() }
+
+        lidMonitor.onChange = { [weak self] closed in
+            guard let self else { return }
+            if self.lidSession.handle(lidClosed: closed) {
+                self.endSession(reason: .lidReopened)
+            }
+        }
+        lidMonitor.start()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -111,10 +136,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Manual on/off. Always clears any battery suspension - the user
     /// overrides the auto-off machine.
     ///
-    /// - Parameter timerMinutes: arms the auto-off countdown for this many
-    ///   minutes. Nil cancels any running countdown (plain on/off is
-    ///   indefinite).
-    private func setIntent(_ on: Bool, timerMinutes: Int? = nil) {
+    /// - Parameters:
+    ///   - timerMinutes: Arms the auto-off countdown for this many minutes.
+    ///   - untilLidReopens: Ends after a lid close/open cycle.
+    ///
+    /// With neither session option, turning on is indefinite.
+    private func setIntent(_ on: Bool,
+                           timerMinutes: Int? = nil,
+                           untilLidReopens: Bool = false) {
         guard !powerChangeInFlight else { return }
         powerChangeInFlight = true
 
@@ -130,16 +159,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // counts as an override. Turning on at a healthy
                     // charge leaves auto-off armed for the discharge.
                     self.overrideBattery = on && self.isBelowFloor
-                    if on, let minutes = timerMinutes {
+                    if on, untilLidReopens {
+                        self.autoOffTimer.cancel()
+                        self.lidSession.start(lidClosed: self.lidMonitor.isClosed)
+                    } else if on, let minutes = timerMinutes {
+                        self.lidSession.cancel()
                         self.autoOffTimer.start(minutes: minutes)
                     } else {
                         self.autoOffTimer.cancel()
+                        self.lidSession.cancel()
                     }
                     self.syncDisplayKeeper()
                     self.refreshStatusItem()
                 case .failure(let error):
                     self.presentError(error)
                 }
+                self.processPendingSessionEnd()
             }
         }
     }
@@ -152,6 +187,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The countdown ran out. Same end state as a manual "Turn Off".
     private func handleTimerExpired() {
+        endSession(reason: .timer)
+    }
+
+    /// Ends either kind of bounded session. This is intentionally shared by
+    /// timer and lid sessions so both interact identically with battery
+    /// suspension and in-flight helper calls.
+    private func endSession(reason: SessionEndReason) {
+        autoOffTimer.cancel()
+        lidSession.cancel()
         guard intent else { return }
 
         // Battery auto-off already re-enabled sleep, so there is nothing
@@ -164,25 +208,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overrideBattery = false
             syncDisplayKeeper()
             refreshStatusItem()
-            notify(title: "Awayke turned off", body: "Timer finished.")
+            notify(title: "Awayke turned off", body: reason.notificationBody)
             return
         }
 
-        guard !powerChangeInFlight else { return }
+        guard !powerChangeInFlight else {
+            pendingSessionEnd = reason
+            return
+        }
         powerChangeInFlight = true
 
         powerManager.disableSleep(false) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.powerChangeInFlight = false
-                guard case .success = result else { return }
-                self.intent = false
-                self.overrideBattery = false
-                self.syncDisplayKeeper()
-                self.refreshStatusItem()
-                self.notify(title: "Awayke turned off", body: "Timer finished.")
+                switch result {
+                case .success:
+                    self.intent = false
+                    self.overrideBattery = false
+                    self.syncDisplayKeeper()
+                    self.refreshStatusItem()
+                    self.notify(title: "Awayke turned off", body: reason.notificationBody)
+                case .failure(let error):
+                    // Do not claim the session ended if pmset could not be
+                    // restored. The icon remains active and the error makes
+                    // the failed safety action visible to the user.
+                    self.refreshStatusItem()
+                    self.presentError(error)
+                }
             }
         }
+    }
+
+    private func processPendingSessionEnd() {
+        guard !powerChangeInFlight, let reason = pendingSessionEnd else { return }
+        pendingSessionEnd = nil
+        endSession(reason: reason)
     }
 
     private func syncDisplayKeeper() {
@@ -214,7 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.powerChangeInFlight = false
-                guard case .success = result else { return }
+                guard case .success = result else {
+                    self.processPendingSessionEnd()
+                    return
+                }
 
                 self.suspendedForBattery = suspending
                 self.syncDisplayKeeper()
@@ -226,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.notify(title: "Awayke back on",
                                 body: "Charging - sleep prevention resumed.")
                 }
+
+                self.processPendingSessionEnd()
 
                 // State moved on; re-check against anything that arrived
                 // while we were waiting. Terminates because each pass
@@ -245,6 +311,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let stateTitle: String
         if suspendedForBattery {
             stateTitle = "Paused (low battery)"
+        } else if effectiveActive, lidSession.isActive {
+            stateTitle = lidSession.isWaitingForClose
+                ? "Active - waiting for lid close"
+                : "Active - until lid reopens"
         } else if effectiveActive, let remaining = autoOffTimer.remaining {
             stateTitle = "Active - \(formatRemaining(remaining)) left"
         } else {
@@ -280,6 +350,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func keepAwakeSubmenuItem() -> NSMenuItem {
         let parent = NSMenuItem(title: "Keep awayke for", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
+
+        let lidSessionItem = NSMenuItem(
+            title: "Until lid is reopened",
+            action: #selector(menuKeepAwakeUntilLidReopens),
+            keyEquivalent: ""
+        )
+        lidSessionItem.target = self
+        lidSessionItem.state = (effectiveActive && lidSession.isActive) ? .on : .off
+        submenu.addItem(lidSessionItem)
+
+        submenu.addItem(.separator())
 
         for value in durationOptions {
             let item = NSMenuItem(title: durationLabel(value),
@@ -369,10 +450,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if minutes > 0 {
+            lidSession.cancel()
             autoOffTimer.start(minutes: minutes)
         } else {
             autoOffTimer.cancel()
+            lidSession.cancel()
         }
+        refreshStatusItem()
+    }
+
+    @objc private func menuKeepAwakeUntilLidReopens() {
+        requestNotificationAuthorization()
+
+        guard effectiveActive else {
+            setIntent(true, untilLidReopens: true)
+            return
+        }
+
+        autoOffTimer.cancel()
+        lidSession.start(lidClosed: lidMonitor.isClosed)
         refreshStatusItem()
     }
 
@@ -435,6 +531,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.title = ""
         if suspendedForBattery {
             button.toolTip = "Awayke paused - battery below \(threshold)%. Plug in to resume."
+        } else if effectiveActive, lidSession.isActive {
+            button.toolTip = lidSession.isWaitingForClose
+                ? "Awayke is on - it will turn off after the lid is closed and reopened."
+                : "Awayke is on - it will turn off when the lid is reopened."
         } else if effectiveActive, let remaining = autoOffTimer.remaining {
             button.toolTip = "Awayke is on - turning off in \(formatRemaining(remaining))."
         } else {
