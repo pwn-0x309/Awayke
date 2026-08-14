@@ -233,6 +233,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // Do not claim the session ended if pmset could not be
                     // restored. The icon remains active and the error makes
                     // the failed safety action visible to the user.
+                    //
+                    // LidSessionTracker.handle already cleared itself when it
+                    // reported the reopen, so without this the session is gone
+                    // and nothing can ever end it. Re-arm so the next
+                    // close/open cycle retries. A timer deadline has genuinely
+                    // passed and has no duration to restore, so it does not
+                    // re-arm.
+                    if case .lidReopened = reason {
+                        self.lidSession.start(lidClosed: self.lidMonitor.isClosed)
+                    }
                     self.refreshStatusItem()
                     self.presentError(error)
                 }
@@ -313,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             stateTitle = "Paused (low battery)"
         } else if effectiveActive, lidSession.isActive {
             stateTitle = lidSession.isWaitingForClose
-                ? "Active - waiting for lid close"
+                ? "Active - waiting for lid to close"
                 : "Active - until lid reopens"
         } else if effectiveActive, let remaining = autoOffTimer.remaining {
             stateTitle = "Active - \(formatRemaining(remaining)) left"
@@ -377,7 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     action: #selector(menuKeepAwakeFor(_:)), keyEquivalent: "")
         indefinite.target = self
         indefinite.tag = 0
-        indefinite.state = (effectiveActive && !autoOffTimer.isRunning) ? .on : .off
+        indefinite.state = (effectiveActive && !autoOffTimer.isRunning && !lidSession.isActive) ? .on : .off
         submenu.addItem(indefinite)
 
         parent.submenu = submenu
