@@ -20,6 +20,10 @@ Single click in your menubar:
 - **Orange laptop icon** - active: your Mac won't sleep even if you close the lid.
 - **White laptop icon** - inactive: restores your normal Mac settings.
 
+Right-click for a bounded session instead: keep Awayke active for 15 minutes to
+2 hours, or until you close and reopen the lid. A low-battery cutoff can also
+turn Awayke off automatically at 10%, 20%, or 30%.
+
 Quitting Awayke always re-enables sleep automatically.
 
 ## Install
