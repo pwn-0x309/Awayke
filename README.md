@@ -63,7 +63,7 @@ No need to cut HDMI cable and insert it in your mac's hinge anymore.
 
 ## Is this dangerous?
 
-Use this tool AT YOUR OWN RISK.
+Use this tool at your own risk.
 That being said, the command Awayke runs is Apple's own tooling. Thermal risk is low for short period of time. Just make sure you do not put your laptop in a bag while Awayke is active. I cannot guarantee safety though.
 
 ## How it works
